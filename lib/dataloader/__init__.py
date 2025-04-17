@@ -10,7 +10,7 @@ from lib.utils.console_utils import *
 def load_scene(data_dir, args, test=False):
     if "waymo" in data_dir:
         print(blue("\n====== [Loading] Waymo Open Dataset ======"))
-        lidars, bboxes = waymo_loader.load_waymo_raw(data_dir, args)
+        images, lidars, bboxes = waymo_loader.load_waymo_raw(data_dir, args)
     elif "kitti" in data_dir:
         print(blue("\n====== [Loading] KITTI Dataset ======"))
         lidars, bboxes = kitti_loader.load_kitti_raw(data_dir, args)
