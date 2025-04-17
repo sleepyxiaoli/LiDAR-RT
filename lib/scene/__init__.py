@@ -17,6 +17,7 @@ from lib.scene.dataset_readers import sceneLoadTypeCallbacks
 from lib.scene.gaussian_model import GaussianModel
 from lib.scene.bounding_box import BoundingBox
 from lib.scene.lidar_sensor import LiDARSensor
+from lib.scene.camera_sensor import CameraSensor
 from lib.scene.cameras import Camera
 from lib.utils.camera_utils import cameraList_from_camInfos, camera_to_JSON
 from lib.utils.system_utils import searchForMaxIteration

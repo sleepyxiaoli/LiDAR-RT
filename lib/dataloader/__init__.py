@@ -3,7 +3,7 @@ import os
 import numpy
 import torch
 from lib.dataloader import kitti_loader, waymo_loader
-from lib.dataloader.gs_loader import SceneLidar
+from lib.dataloader.gs_loader import SceneLidar, SceneBoth
 from lib.utils.console_utils import *
 
 
@@ -18,5 +18,5 @@ def load_scene(data_dir, args, test=False):
         raise ValueError("Error: invalid dataset")
 
     print(blue("------------"))
-    scene = SceneLidar(args, (lidars, bboxes), test=test)
+    scene = SceneBoth(args, (images, lidars, bboxes), test=test)
     return scene
