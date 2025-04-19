@@ -197,11 +197,9 @@ class CameraSensor:
         sensor2world = self.sensor2world[frame].cuda()  # [4, 4] 外参矩阵
         sensor_center = self.sensor_center[frame].cuda()  # [3,] 相机中心
 
-        # 射线原点（所有射线共享相机中心）
         rays_o = sensor_center[None, None, ...].expand(self.H, self.W, 3)  # [H, W, 3]
         # print("ray_o",rays_o)
         
-        # 生成像素坐标网格（齐次坐标，u/v从0开始）
         u = torch.arange(self.W, device='cuda', dtype=torch.float32) + 0.5  # [W]
         v = torch.arange(self.H, device='cuda', dtype=torch.float32) + 0.5  # [H]
         # print("u",u)
@@ -211,16 +209,8 @@ class CameraSensor:
         pixel_coords = torch.stack([grid_u, grid_v, ones], dim=-1)  # [H, W, 3]
         # print("pixel_coords",pixel_coords)
 
-        # 反投影到相机坐标系（归一化平面）
         rays_d_cam = pixel_coords @ torch.inverse(K).T  # [H, W, 3]
-        # rays_d_cam = rays_d_cam / rays_d_cam[..., 0:1]  # 归一化x=1平面
 
-        # rays_d_cam = torch.stack([
-        #     rays_d_cam[..., 0],  # x前 = 原始u方向
-        #     -rays_d_cam[..., 1], # y左 = 原始v方向取反（假设v增加是向下）
-        #     rays_d_cam[..., 2]   # z上 = 1
-        # ], dim=-1)
-        
         rays_d_cam = torch.stack([
             rays_d_cam[..., 2],  # x前 = 原始z
             -rays_d_cam[..., 0], # y左 = -原始x

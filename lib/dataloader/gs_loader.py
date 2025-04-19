@@ -5,7 +5,7 @@ from typing import Dict
 import numpy as np
 import open3d as o3d
 import torch
-from lib.scene import BoundingBox, GaussianModel, LiDARSensor, Scene, dataset_readers
+from lib.scene import BoundingBox, GaussianModel, LiDARSensor, CameraSensor, Scene, dataset_readers
 from lib.utils import general_utils
 from lib.utils.camera_utils import cameraList_from_camInfos
 from lib.utils.general_utils import build_rotation

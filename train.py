@@ -146,7 +146,7 @@ def training(args):
             args.pipe.debug = True
 
         render_pkg = raytracing(
-            frame, gaussians_assets, scene.train_lidar, background, args
+            frame, gaussians_assets, scene.train_lidar,scene.train_image, background, args
         )
         batch_time = time.time() - end
         depth = render_pkg["depth"]

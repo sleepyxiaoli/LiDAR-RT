@@ -138,9 +138,15 @@ class GaussianModel:
         return self._xyz
 
     @property
-    def get_features(self):
-        features_dc = self._features_dc
-        features_rest = self._features_rest
+    def get_lidar_features(self):
+        features_dc = self._features_dc[0]
+        features_rest = self._features_rest[0]
+        return torch.cat((features_dc, features_rest), dim=1)
+    
+    @property
+    def get_camera_features(self):
+        features_dc = self._features_dc[1]
+        features_rest = self._features_rest[1]
         return torch.cat((features_dc, features_rest), dim=1)
 
     @property
@@ -158,15 +164,20 @@ class GaussianModel:
 
         color_intensity = pcd.color_intensity.float().cuda()
         fused_color = RGB2SH(color_intensity)
-        features = torch.zeros((fused_color.shape[0], 3, (self.max_sh_degree + 1) ** 2)).float().cuda()
-        features[:, :3, 0 ] = fused_color
-        features[:, 3:, 1:] = 0.0
+        intensity_features = torch.zeros((fused_color.shape[0], 3, (self.max_sh_degree + 1) ** 2)).float().cuda()
+        intensity_features[ :, :3, 0] = fused_color
+        
+        rgb_features = torch.randn((fused_color.shape[0], 3, (self.max_sh_degree + 1) ** 2)).float().cuda()
+        rgb_features *= 0.1
+        rgb_features[:, :, 0] = torch.sigmoid(rgb_features[:, :, 0]) * 2 - 1
+        
+        features = torch.stack([intensity_features, rgb_features], dim=0)
 
         print("Number of points at initialization: ", fused_point_cloud.shape[0])
 
         dist2 = torch.clamp_min(distCUDA2(torch.from_numpy(np.asarray(pcd.points)).float().cuda()), 0.0000001)
         scales = torch.log(torch.sqrt(dist2))[...,None].repeat(1, self.dimension)
-        
+
         if use_normals:
             normals = pcd.normals.float().cuda()
             rots = generate_random_quaternion_with_fixed_normal(normals)
@@ -176,8 +187,8 @@ class GaussianModel:
         opacities = self.inverse_opacity_activation(0.1 * torch.ones((fused_point_cloud.shape[0], 1), dtype=torch.float, device="cuda"))
 
         self._xyz = nn.Parameter(fused_point_cloud.requires_grad_(True))
-        self._features_dc = nn.Parameter(features[:,:,0:1].transpose(1, 2).contiguous().requires_grad_(True))
-        self._features_rest = nn.Parameter(features[:,:,1:].transpose(1, 2).contiguous().requires_grad_(True))
+        self._features_dc = nn.Parameter(features[:,:,:,0:1].transpose(2, 3).contiguous().requires_grad_(True))
+        self._features_rest = nn.Parameter(features[:,:,:,1:].transpose(2, 3).contiguous().requires_grad_(True))
         self._scaling = nn.Parameter(scales.requires_grad_(True))
         self._rotation = nn.Parameter(rots.requires_grad_(True))
         self._opacity = nn.Parameter(opacities.requires_grad_(True))

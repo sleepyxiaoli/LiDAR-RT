@@ -1,8 +1,8 @@
 import numpy as np
 import torch
 import torch.nn.functional as F
-from diff_lidar_tracer import Tracer, TracingSettings
-from lib.scene import Camera, GaussianModel, LiDARSensor
+from diff_both_tracer import Tracer, TracingSettings
+from lib.scene import Camera, GaussianModel, LiDARSensor, CameraSensor
 from lib.utils.general_utils import quaternion_raw_multiply
 from lib.utils.graphics_utils import get_rays
 from lib.utils.primitive_utils import primitiveTypeCallbacks
@@ -15,7 +15,8 @@ vertices, faces = None, None
 def raytracing(
     frame: int,
     gaussian_assets: list[GaussianModel],
-    sensor: LiDARSensor | Camera,
+    lidar_sensor: LiDARSensor,
+    camera_sensor: CameraSensor,
     background: torch.Tensor,
     args,
     scaling_modifier=1.0,
@@ -28,26 +29,32 @@ def raytracing(
     elif decomp == "object":
         gaussian_assets = gaussian_assets[1:]
 
-    if isinstance(sensor, Camera):
-        sensor_center = sensor.camera_center
-        focal = 0.5 * sensor.image_width / np.tan(0.5 * sensor.FoVx)
-        K = np.array(
-            [
-                [focal, 0, 0.5 * sensor.image_width],
-                [0, focal, 0.5 * sensor.image_height],
-                [0, 0, 1],
-            ]
-        )
-        rays_o, rays_d = get_rays(K, sensor.world_view_transform.T.inverse()[:3, :4])
-    elif isinstance(sensor, LiDARSensor):
-        rays_o, rays_d = sensor.get_range_rays(frame)
-        sensor_center = sensor.sensor_center[frame]
-    elif isinstance(sensor, tuple):
-        rays_o, rays_d = sensor[0], sensor[1]
-        sensor_center = sensor[2]
-    else:
-        raise ValueError("sensor type not supported")
+    # if isinstance(sensor, Camera):
+    #     sensor_center = sensor.camera_center
+    #     focal = 0.5 * sensor.image_width / np.tan(0.5 * sensor.FoVx)
+    #     K = np.array(
+    #         [
+    #             [focal, 0, 0.5 * sensor.image_width],
+    #             [0, focal, 0.5 * sensor.image_height],
+    #             [0, 0, 1],
+    #         ]
+    #     )
+    #     rays_o, rays_d = get_rays(K, sensor.world_view_transform.T.inverse()[:3, :4])
+    # elif isinstance(sensor, LiDARSensor):
+    #     rays_o, rays_d = sensor.get_range_rays(frame)
+    #     sensor_center = sensor.sensor_center[frame]
+    # elif isinstance(sensor, tuple):
+    #     rays_o, rays_d = sensor[0], sensor[1]
+    #     sensor_center = sensor[2]
+    # else:
+    #     raise ValueError("sensor type not supported")
 
+    lidar_rays_o, lidar_rays_d = lidar_sensor.get_range_rays(frame)
+    lidar_sensor_center = lidar_sensor.sensor_center[frame]
+    
+    camera_rays_o, camera_rays_d = camera_sensor.get_range_rays(frame)
+    camera_sensor_center = camera_sensor.sensor_center[frame]
+    
     tracer = tracer_2dgs
     primitiveCallback = primitiveTypeCallbacks["2DRectangle"]
 
@@ -61,17 +68,20 @@ def raytracing(
         viewmatrix=torch.Tensor([]).cuda(),
         projmatrix=torch.Tensor([]).cuda(),
         sh_degree=gaussian_assets[0].active_sh_degree,
-        campos=sensor_center.cuda(),
+        lidar_campos=lidar_sensor_center.cuda(),
+        camera_campos=camera_sensor_center.cuda(),
         prefiltered=False,
         debug=False,
     )
+    
 
     all_means3D = []
     all_opacities = []
     all_scales = []
     obj_rot, rot_in_local = [], []
     all_cov3D_precomp = []
-    all_shs = []
+    all_lidar_shs = []
+    all_camera_shs = []
     all_colors_precomp = []
     for pc in gaussian_assets[:]:
         means3D = pc.get_world_xyz(frame)
@@ -104,7 +114,8 @@ def raytracing(
                 sh2rgb = eval_sh(pc.active_sh_degree, shs_view, dir_pp_normalized)
                 all_colors_precomp.append(torch.clamp_min(sh2rgb + 0.5, 0.0))
             else:
-                all_shs.append(pc.get_features)
+                all_lidar_shs.append(pc.get_lidar_features)
+                all_camera_shs.append(pc.get_camera_features)
         else:
             all_colors_precomp.append(override_color)
 
@@ -128,7 +139,8 @@ def raytracing(
         rot_in_local = torch.nn.functional.normalize(rot_in_local, dim=1)
         rotations = quaternion_raw_multiply(None, obj_rot, rot_in_local)
         rotations = torch.cat([rots_bkgd, rotations], dim=0)
-    shs = torch.cat(all_shs, dim=0) if all_shs else None
+    lidar_shs = torch.cat(all_lidar_shs, dim=0) if all_lidar_shs else None
+    camera_shs = torch.cat(all_camera_shs, dim=0) if all_camera_shs else None
     colors_precomp = (
         torch.cat(all_colors_precomp, dim=0) if all_colors_precomp else None
     )
@@ -145,16 +157,19 @@ def raytracing(
     tracer.build_acceleration_structure(vertices, faces, rebuild=True)
 
     rendered_tensor, accum_gaussian_weights = tracer(
-        ray_o=rays_o,  # (H, W, 3)
-        ray_d=rays_d,  # (H, W, 3)
-        mesh_normals=mesh_normals,  # (V, 3)
-        means3D=means3D,  # (P, 3)
-        grads3D=grads3D,  # (P, 3)
-        shs=shs,  # (P, 3, M)
+        lidar_ray_o=lidar_rays_o,  
+        lidar_ray_d=lidar_rays_d,  
+        camera_ray_o=camera_rays_o,  
+        camera_ray_d=camera_rays_d, 
+        mesh_normals=mesh_normals,  
+        means3D=means3D,  
+        grads3D=grads3D,  
+        lidar_shs=lidar_shs,  
+        camera_shs=camera_shs,  
         colors_precomp=None,
-        opacities=opacity,  # (P, 1)
-        scales=scales,  # (P, 3)
-        rotations=rotations,  # (P, 4)
+        opacities=opacity,  
+        scales=scales,  
+        rotations=rotations,  
         cov3Ds_precomp=None,
         tracer_settings=tracer_settings,
     )
