@@ -303,8 +303,6 @@ extern "C" __global__ void __raygen__ot()
     params.out_attr_float32[NUM_CHANNELS_F * tidx + NORMAL_OFFSET + 2] = N.z;
     
     params.out_attr_float32[NUM_CHANNELS_F * tidx + FINALT_OFFSET] = T;
-    
-
 }
 
 

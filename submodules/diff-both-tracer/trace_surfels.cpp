@@ -154,10 +154,13 @@ TraceSurfelsCUDA(
     const bool training,
     const torch::Tensor& ray_o,
     const torch::Tensor& ray_d,
+    const torch::Tensor& camera_ray_o,
+    const torch::Tensor& camera_ray_d,
     const torch::Tensor& vertices,
     const torch::Tensor& background,
     const torch::Tensor& means3D,
     const torch::Tensor& shs,
+    const torch::Tensor& camera_shs,
     const int degree,
     const torch::Tensor& colors_precomp,
     const torch::Tensor& opacities,
@@ -168,6 +171,7 @@ TraceSurfelsCUDA(
     const torch::Tensor& viewmatrix,
     const torch::Tensor& projmatrix,
     const torch::Tensor& campos,
+    const torch::Tensor& camera_campos,
     const bool prefiltered,
     const bool debug)
 {
@@ -183,13 +187,18 @@ TraceSurfelsCUDA(
     const int P = means3D.size(0);
     const int H = ray_o.size(0);
     const int W = ray_o.size(1);
+    const int c_H = camera_ray_o.size(0);
+    const int c_W = camera_ray_o.size(1);
 
     // Check input
     CHECK_INPUT(ray_o);
     CHECK_INPUT(ray_d);
+    CHECK_INPUT(camera_ray_o);
+    CHECK_INPUT(camera_ray_d);
     CHECK_INPUT(background);
     CHECK_INPUT(means3D);
     CHECK_INPUT(shs);
+    CHECK_INPUT(camera_shs);
     CHECK_INPUT(colors_precomp);
     CHECK_INPUT(opacities);
     CHECK_INPUT(scales);
@@ -198,6 +207,7 @@ TraceSurfelsCUDA(
     CHECK_INPUT(viewmatrix);
     CHECK_INPUT(projmatrix);
     CHECK_INPUT(campos);
+    CHECK_INPUT(camera_campos);
 
     // Define different output tensor options
     torch::TensorOptions int_opts = torch::TensorOptions().dtype(torch::kInt32).device(torch::kCUDA);
@@ -216,6 +226,8 @@ TraceSurfelsCUDA(
     params.P = P;
     params.H = H;
     params.W = W;
+    params.c_H = c_H;
+    params.c_W = c_W;
     params.D = degree;
     int M = 0;
     if (shs.size(0) != 0)
@@ -226,10 +238,13 @@ TraceSurfelsCUDA(
     params.training = training;
     params.ray_o = reinterpret_cast<float3*>(ray_o.contiguous().data_ptr<float>());
     params.ray_d = reinterpret_cast<float3*>(ray_d.contiguous().data_ptr<float>());
+    params.camera_ray_o = reinterpret_cast<float3*>(camera_ray_o.contiguous().data_ptr<float>());
+    params.camera_ray_d = reinterpret_cast<float3*>(camera_ray_d.contiguous().data_ptr<float>());
     params.vertices = reinterpret_cast<float3*>(vertices.contiguous().data_ptr<float>());
     params.background = background.contiguous().data_ptr<float>();
     params.means3D = reinterpret_cast<glm::vec3*>(means3D.contiguous().data_ptr<float>());
     params.shs = shs.contiguous().data_ptr<float>();
+    params.camera_shs = camera_shs.contiguous().data_ptr<float>();
     params.colors_precomp = colors_precomp.contiguous().data_ptr<float>();
     params.opacities = opacities.contiguous().data_ptr<float>();
     params.scales = reinterpret_cast<glm::vec2*>(scales.contiguous().data_ptr<float>());
@@ -239,6 +254,7 @@ TraceSurfelsCUDA(
     params.viewmatrix = viewmatrix.contiguous().data_ptr<float>();
     params.projmatrix = projmatrix.contiguous().data_ptr<float>();
     params.campos = reinterpret_cast<glm::vec3*>(campos.contiguous().data_ptr<float>());
+    params.camera_campos = reinterpret_cast<glm::vec3*>(camera_campos.contiguous().data_ptr<float>());
     // Store output tensors;
     params.out_attr_float32 = out_attr_float32.contiguous().data_ptr<float>();
     params.out_attr_uint32 = out_attr_uint32.contiguous().data_ptr<int>();
@@ -270,10 +286,13 @@ TraceSurfelsBackwardCUDA(
     const OptiXStateWrapper& stateWrapper,
     const torch::Tensor& ray_o,
     const torch::Tensor& ray_d,
+    const torch::Tensor& camera_ray_o,
+    const torch::Tensor& camera_ray_d,
     const torch::Tensor& vertices,
     const torch::Tensor& background,
     const torch::Tensor& means3D,
     const torch::Tensor& shs,
+    const torch::Tensor& camera_shs,
     const int degree,
     const torch::Tensor& colors_precomp,
     const torch::Tensor& opacities,
@@ -284,6 +303,7 @@ TraceSurfelsBackwardCUDA(
     const torch::Tensor& viewmatrix,
     const torch::Tensor& projmatrix,
     const torch::Tensor& campos,
+    const torch::Tensor& camera_campos,
     const bool prefiltered,
     const bool debug,
     const torch::Tensor& out_attr_float32,
@@ -296,9 +316,12 @@ TraceSurfelsBackwardCUDA(
     // Check input
     CHECK_INPUT(ray_o);
     CHECK_INPUT(ray_d);
+    CHECK_INPUT(camera_ray_o);
+    CHECK_INPUT(camera_ray_d);
     CHECK_INPUT(background);
     CHECK_INPUT(means3D);
     CHECK_INPUT(shs);
+    CHECK_INPUT(camera_shs);
     CHECK_INPUT(colors_precomp);
     CHECK_INPUT(opacities);
     CHECK_INPUT(scales);
@@ -307,11 +330,14 @@ TraceSurfelsBackwardCUDA(
     CHECK_INPUT(viewmatrix);
     CHECK_INPUT(projmatrix);
     CHECK_INPUT(campos);
+    CHECK_INPUT(camera_campos);
 
     // Get dimensions of the input
     const int P = means3D.size(0);
     const int H = ray_o.size(0);
     const int W = ray_o.size(1);
+    const int c_H = camera_ray_o.size(0);
+    const int c_W = camera_ray_o.size(1);
     int M = 0;
     if (shs.size(0) != 0)
     {
@@ -321,6 +347,7 @@ TraceSurfelsBackwardCUDA(
     // Create output gradient Tensors
     torch::Tensor dL_dmeans3D = torch::zeros({P, 3}, means3D.options());
     torch::Tensor dL_dshs = torch::zeros({P, M, 3}, means3D.options());
+    torch::Tensor dL_dcamera_shs = torch::zeros({P, M, 3}, means3D.options());
     torch::Tensor dL_dcolors = torch::zeros({P, 3}, means3D.options());
     torch::Tensor dL_dopacities = torch::zeros({P, 1}, means3D.options());
     torch::Tensor dL_dscales = torch::zeros({P, 2}, means3D.options());
@@ -334,15 +361,20 @@ TraceSurfelsBackwardCUDA(
     params.P = P;
     params.H = H;
     params.W = W;
+    params.c_H = c_H;
+    params.c_W = c_W;
     params.D = degree;
     params.M = M;
     // Store input parameters
     params.ray_o = reinterpret_cast<float3*>(ray_o.contiguous().data_ptr<float>());
     params.ray_d = reinterpret_cast<float3*>(ray_d.contiguous().data_ptr<float>());
+    params.camera_ray_o = reinterpret_cast<float3*>(camera_ray_o.contiguous().data_ptr<float>());
+    params.camera_ray_d = reinterpret_cast<float3*>(camera_ray_d.contiguous().data_ptr<float>());
     params.vertices = reinterpret_cast<float3*>(vertices.contiguous().data_ptr<float>());
     params.background = background.contiguous().data_ptr<float>();
     params.means3D = reinterpret_cast<glm::vec3*>(means3D.contiguous().data_ptr<float>());
     params.shs = shs.contiguous().data_ptr<float>();
+    params.camera_shs = camera_shs.contiguous().data_ptr<float>();
     params.colors_precomp = colors_precomp.contiguous().data_ptr<float>();
     params.opacities = opacities.contiguous().data_ptr<float>();
     params.scales = reinterpret_cast<glm::vec2*>(scales.contiguous().data_ptr<float>());
@@ -352,6 +384,7 @@ TraceSurfelsBackwardCUDA(
     params.viewmatrix = viewmatrix.contiguous().data_ptr<float>();
     params.projmatrix = projmatrix.contiguous().data_ptr<float>();
     params.campos = reinterpret_cast<glm::vec3*>(campos.contiguous().data_ptr<float>());
+    params.camera_campos = reinterpret_cast<glm::vec3*>(camera_campos.contiguous().data_ptr<float>());
     // Store output tensors
     params.out_attr_float32 = out_attr_float32.contiguous().data_ptr<float>();
     params.out_attr_uint32 = out_attr_uint32.contiguous().data_ptr<int>();
@@ -361,6 +394,7 @@ TraceSurfelsBackwardCUDA(
     params.dL_dmeans3D = reinterpret_cast<glm::vec3*>(dL_dmeans3D.contiguous().data_ptr<float>());
     params.dL_dgrads3D_abs = reinterpret_cast<glm::vec3*>(dL_dgrads3D_abs.contiguous().data_ptr<float>());
     params.dL_dshs = reinterpret_cast<glm::vec3*>(dL_dshs.contiguous().data_ptr<float>());
+    params.dL_dcamera_shs = reinterpret_cast<glm::vec3*>(dL_dcamera_shs.contiguous().data_ptr<float>());
     params.dL_dcolors = dL_dcolors.contiguous().data_ptr<float>();
     params.dL_dopacities = dL_dopacities.contiguous().data_ptr<float>();
     params.dL_dscales = reinterpret_cast<glm::vec2*>(dL_dscales.contiguous().data_ptr<float>());
@@ -381,6 +415,6 @@ TraceSurfelsBackwardCUDA(
     // Synchronize stream
     CUDA_CHECK(cudaStreamSynchronize(stream));
 
-    return std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor>(
+    return std::tuple<torch::Tensor,torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor>(
         dL_dmeans3D, dL_dshs, dL_dcolors, dL_dopacities, dL_dscales, dL_drotations, dL_dtransMat_precomp, dL_dgrads3D_abs);
 }

@@ -49,8 +49,8 @@ def raytracing(
     # else:
     #     raise ValueError("sensor type not supported")
 
-    lidar_rays_o, lidar_rays_d = lidar_sensor.get_range_rays(frame)
-    lidar_sensor_center = lidar_sensor.sensor_center[frame]
+    rays_o, rays_d = lidar_sensor.get_range_rays(frame)
+    sensor_center = lidar_sensor.sensor_center[frame]
     
     camera_rays_o, camera_rays_d = camera_sensor.get_range_rays(frame)
     camera_sensor_center = camera_sensor.sensor_center[frame]
@@ -68,7 +68,7 @@ def raytracing(
         viewmatrix=torch.Tensor([]).cuda(),
         projmatrix=torch.Tensor([]).cuda(),
         sh_degree=gaussian_assets[0].active_sh_degree,
-        lidar_campos=lidar_sensor_center.cuda(),
+        campos=sensor_center.cuda(),
         camera_campos=camera_sensor_center.cuda(),
         prefiltered=False,
         debug=False,
@@ -80,7 +80,7 @@ def raytracing(
     all_scales = []
     obj_rot, rot_in_local = [], []
     all_cov3D_precomp = []
-    all_lidar_shs = []
+    all_shs = []
     all_camera_shs = []
     all_colors_precomp = []
     for pc in gaussian_assets[:]:
@@ -114,7 +114,7 @@ def raytracing(
                 sh2rgb = eval_sh(pc.active_sh_degree, shs_view, dir_pp_normalized)
                 all_colors_precomp.append(torch.clamp_min(sh2rgb + 0.5, 0.0))
             else:
-                all_lidar_shs.append(pc.get_lidar_features)
+                all_shs.append(pc.get_lidar_features)
                 all_camera_shs.append(pc.get_camera_features)
         else:
             all_colors_precomp.append(override_color)
@@ -139,7 +139,7 @@ def raytracing(
         rot_in_local = torch.nn.functional.normalize(rot_in_local, dim=1)
         rotations = quaternion_raw_multiply(None, obj_rot, rot_in_local)
         rotations = torch.cat([rots_bkgd, rotations], dim=0)
-    lidar_shs = torch.cat(all_lidar_shs, dim=0) if all_lidar_shs else None
+    shs = torch.cat(all_shs, dim=0) if all_shs else None
     camera_shs = torch.cat(all_camera_shs, dim=0) if all_camera_shs else None
     colors_precomp = (
         torch.cat(all_colors_precomp, dim=0) if all_colors_precomp else None
@@ -157,14 +157,14 @@ def raytracing(
     tracer.build_acceleration_structure(vertices, faces, rebuild=True)
 
     rendered_tensor, accum_gaussian_weights = tracer(
-        lidar_ray_o=lidar_rays_o,  
-        lidar_ray_d=lidar_rays_d,  
+        ray_o=rays_o,  
+        ray_d=rays_d,  
         camera_ray_o=camera_rays_o,  
         camera_ray_d=camera_rays_d, 
         mesh_normals=mesh_normals,  
         means3D=means3D,  
         grads3D=grads3D,  
-        lidar_shs=lidar_shs,  
+        shs=shs,  
         camera_shs=camera_shs,  
         colors_precomp=None,
         opacities=opacity,  

@@ -15,14 +15,14 @@ class _Tracer(torch.autograd.Function):
     def forward(ctx,
                 optix_context,
                 training,
-                lidar_ray_o,
-                lidar_ray_d,
+                ray_o,
+                ray_d,
                 camera_ray_o,
                 camera_ray_d,
                 vertices,
                 means3D,
                 grads3D,
-                lidar_shs,
+                shs,
                 camera_shs,
                 colors_precomp,
                 opacities,
@@ -35,14 +35,14 @@ class _Tracer(torch.autograd.Function):
         # Restructure arguments the way that the C++ lib expects them
         args = (optix_context,
                 training,
-                lidar_ray_o,
-                lidar_ray_d,
+                ray_o,
+                ray_d,
                 camera_ray_o,
                 camera_ray_d,
                 vertices,
                 tracer_settings.bg,
                 means3D,
-                lidar_shs,
+                shs,
                 camera_shs,
                 tracer_settings.sh_degree,
                 colors_precomp,
@@ -53,7 +53,7 @@ class _Tracer(torch.autograd.Function):
                 cov3Ds_precomp,
                 tracer_settings.viewmatrix,
                 tracer_settings.projmatrix,
-                tracer_settings.lidar_campos,
+                tracer_settings.campos,
                 tracer_settings.camera_campos,
                 tracer_settings.prefiltered,
                 tracer_settings.debug)
@@ -73,7 +73,7 @@ class _Tracer(torch.autograd.Function):
         # Keep relevant tensors for backward
         ctx.tracer_settings = tracer_settings
         ctx.optix_context = optix_context
-        ctx.save_for_backward(lidar_ray_o, lidar_ray_d, camera_ray_o, camera_ray_d, vertices, means3D, lidar_shs, camera_shs, colors_precomp, opacities, scales, rotations, cov3Ds_precomp,
+        ctx.save_for_backward(ray_o, ray_d, camera_ray_o, camera_ray_d, vertices, means3D, shs, camera_shs, colors_precomp, opacities, scales, rotations, cov3Ds_precomp,
                               out_attr_float32, out_attr_uint32)
 
         # Return the per-Gaussian hit counter for training gradient filtering
@@ -86,18 +86,18 @@ class _Tracer(torch.autograd.Function):
         # Restore necessary values from context
         tracer_settings = ctx.tracer_settings
         optix_context = ctx.optix_context
-        lidar_ray_o, lidar_ray_d, camera_ray_o, camera_ray_d, vertices, means3D, lidar_shs, camera_shs, colors_precomp, opacities, scales, rotations, cov3Ds_precomp, \
+        ray_o, ray_d, camera_ray_o, camera_ray_d, vertices, means3D, shs, camera_shs, colors_precomp, opacities, scales, rotations, cov3Ds_precomp, \
             out_attr_float32, out_attr_uint32 = ctx.saved_tensors
         # Restructure args as C++ method expects them
         args = (optix_context,
-                lidar_ray_o, 
-                lidar_ray_d, 
+                ray_o, 
+                ray_d, 
                 camera_ray_o, 
                 camera_ray_d,
                 vertices,
                 tracer_settings.bg,
                 means3D,
-                lidar_shs, 
+                shs, 
                 camera_shs,
                 tracer_settings.sh_degree,
                 colors_precomp,
@@ -108,7 +108,7 @@ class _Tracer(torch.autograd.Function):
                 cov3Ds_precomp,
                 tracer_settings.viewmatrix,
                 tracer_settings.projmatrix,
-                tracer_settings.lidar_campos,
+                tracer_settings.campos,
                 tracer_settings.camera_campos,
                 tracer_settings.prefiltered,
                 tracer_settings.debug,
@@ -120,13 +120,13 @@ class _Tracer(torch.autograd.Function):
         if tracer_settings.debug:
             cpu_args = cpu_deep_copy_tuple(args) # Copy them before they can be corrupted
             try:
-                grad_means3D, grad_lidar_shs, grad_camera_shs, grad_colors_precomp, grad_opacities, grad_scales, grad_rotations, grad_cov3Ds_precomp, grad_grads3D = _C.trace_surfels_backward(*args)
+                grad_means3D, grad_shs, grad_camera_shs, grad_colors_precomp, grad_opacities, grad_scales, grad_rotations, grad_cov3Ds_precomp, grad_grads3D = _C.trace_surfels_backward(*args)
             except Exception as ex:
                 torch.save(cpu_args, "snapshot_bw.dump")
                 print("\nAn error occured in backward. Writing snapshot_bw.dump for debugging.\n")
                 raise ex
         else:
-            grad_means3D, grad_lidar_shs, grad_camera_shs, grad_colors_precomp, grad_opacities, grad_scales, grad_rotations, grad_cov3Ds_precomp, grad_grads3D = _C.trace_surfels_backward(*args)
+            grad_means3D, grad_shs, grad_camera_shs, grad_colors_precomp, grad_opacities, grad_scales, grad_rotations, grad_cov3Ds_precomp, grad_grads3D = _C.trace_surfels_backward(*args)
         grads = (
             None,
             None,
@@ -135,7 +135,7 @@ class _Tracer(torch.autograd.Function):
             None,
             grad_means3D,
             grad_grads3D,
-            grad_lidar_shs,
+            grad_shs,
             grad_camera_shs,
             grad_colors_precomp,
             grad_opacities,
@@ -158,7 +158,7 @@ class TracingSettings(NamedTuple):
     viewmatrix: torch.Tensor
     projmatrix: torch.Tensor
     sh_degree: int
-    lidar_campos: torch.Tensor
+    campos: torch.Tensor
     camera_campos: torch.Tensor
     prefiltered: bool
     debug: bool
@@ -184,14 +184,14 @@ class Tracer(nn.Module):
         return _C.build_acceleration_structure(self.optix_context, vertices, triangles, rebuild)
 
     def forward(self,
-                lidar_ray_o: torch.Tensor,
-                lidar_ray_d: torch.Tensor,
+                ray_o: torch.Tensor,
+                ray_d: torch.Tensor,
                 camera_ray_o: torch.Tensor,
                 camera_ray_d: torch.Tensor,
                 mesh_normals: torch.Tensor,
                 means3D: torch.Tensor,
                 grads3D: torch.Tensor,
-                lidar_shs: torch.Tensor = None,
+                shs: torch.Tensor = None,
                 camera_shs: torch.Tensor = None,
                 colors_precomp: torch.Tensor = None,
                 opacities: torch.Tensor = None,
@@ -202,14 +202,14 @@ class Tracer(nn.Module):
                 ):
 
         # Check if colors or SHs are provided
-        if (lidar_shs is None and colors_precomp is None) or (lidar_shs is not None and colors_precomp is not None):
+        if (shs is None and colors_precomp is None) or (shs is not None and colors_precomp is not None):
             raise Exception('Please provide excatly one of either SHs or precomputed colors!')
         # Check if scales/rotations or cov3Ds_precomp is provided
         if ((scales is None or rotations is None) and cov3Ds_precomp is None) or ((scales is not None or rotations is not None) and cov3Ds_precomp is not None):
             raise Exception('Please provide exactly one of either scale/rotation pair or precomputed 3D covariance!')
 
         # Create dummy color tracing input
-        if lidar_shs is None: lidar_shs = torch.Tensor([]).cuda()
+        if shs is None: shs = torch.Tensor([]).cuda()
         if camera_shs is None: camera_shs = torch.Tensor([]).cuda()
         if colors_precomp is None: colors_precomp = torch.Tensor([]).cuda()
         # Create dummy tracing transformation matrix input
@@ -221,14 +221,14 @@ class Tracer(nn.Module):
         return _Tracer.apply(
             self.optix_context,
             self.training,
-            lidar_ray_o,
-            lidar_ray_d,
+            ray_o,
+            ray_d,
             camera_ray_o,
             camera_ray_d,
             self.vertices,
             means3D,
             grads3D,
-            lidar_shs,
+            shs,
             camera_shs,
             colors_precomp,
             opacities,
