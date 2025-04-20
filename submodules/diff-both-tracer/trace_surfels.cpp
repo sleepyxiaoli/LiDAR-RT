@@ -281,7 +281,7 @@ TraceSurfelsCUDA(
 }
 
 
-std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor>
+std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor>
 TraceSurfelsBackwardCUDA(
     const OptiXStateWrapper& stateWrapper,
     const torch::Tensor& ray_o,
@@ -415,6 +415,6 @@ TraceSurfelsBackwardCUDA(
     // Synchronize stream
     CUDA_CHECK(cudaStreamSynchronize(stream));
 
-    return std::tuple<torch::Tensor,torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor>(
-        dL_dmeans3D, dL_dshs, dL_dcolors, dL_dopacities, dL_dscales, dL_drotations, dL_dtransMat_precomp, dL_dgrads3D_abs);
+    return std::tuple<torch::Tensor,torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor>(
+        dL_dmeans3D, dL_dshs, dL_dcamera_shs, dL_dcolors, dL_dopacities, dL_dscales, dL_drotations, dL_dtransMat_precomp, dL_dgrads3D_abs);
 }
